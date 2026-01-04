@@ -1,26 +1,35 @@
+"""03_als_train.py
+Lightweight training / evaluation of a simple recommender.
+
+This script demonstrates a baseline approach using user/movie averages
+to predict ratings and compute an RMSE on a holdout set. It also
+builds simple per-user top-N recommendations based on historical averages.
+"""
+
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
 import os
 
-# Load ratings
+# Load cleaned ratings from disk
 ratings = pd.read_csv("output/clean/ratings.csv")
 
-# Split data
+# Train/test split for evaluation (80/20)
 train, test = train_test_split(ratings, test_size=0.2, random_state=42)
 
-# Simple collaborative filtering: compute user-item averages
+# Baseline model: per-user and per-movie mean ratings, plus a global mean
 user_means = train.groupby("userId")["rating"].mean()
 movie_means = train.groupby("movieId")["rating"].mean()
 global_mean = train["rating"].mean()
 
-# Make predictions
+# Predict on test set by averaging available user and movie means
 predictions = []
 for _, row in test.iterrows():
     user_id = row["userId"]
     movie_id = row["movieId"]
-    
+
+    # Fallback to global mean if user or movie unseen in training
     user_avg = user_means.get(user_id, global_mean)
     movie_avg = movie_means.get(movie_id, global_mean)
     pred = (user_avg + movie_avg) / 2
@@ -29,25 +38,24 @@ for _, row in test.iterrows():
 test_copy = test.copy()
 test_copy["prediction"] = predictions
 
-# Calculate RMSE
+# Compute RMSE between true ratings and predictions
 rmse = np.sqrt(mean_squared_error(test_copy["rating"], test_copy["prediction"]))
 print("✔ RMSE =", rmse)
 
-# Save recommendations (top 10 movies per user)
+# Build simple recommendations: for each user, rank movies by historical average
+# (this uses the full dataset and is a simple illustrative baseline)
 recommendations = []
 for user_id in ratings["userId"].unique():
     movie_scores = {}
     for _, row in ratings[ratings["userId"] == user_id].iterrows():
         movie_id = row["movieId"]
         rating = row["rating"]
-        if movie_id not in movie_scores:
-            movie_scores[movie_id] = []
-        movie_scores[movie_id].append(rating)
-    
-    # Average scores and get top 10
+        movie_scores.setdefault(movie_id, []).append(rating)
+
+    # Compute average score per movie and take top 10
     avg_scores = {m: np.mean(s) for m, s in movie_scores.items()}
     top_movies = sorted(avg_scores.items(), key=lambda x: x[1], reverse=True)[:10]
-    
+
     for movie_id, score in top_movies:
         recommendations.append({"userId": user_id, "movieId": movie_id, "score": score})
 
